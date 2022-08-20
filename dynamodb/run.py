@@ -1,7 +1,7 @@
-# %%
 import inspect
 import os
 import time
+from pprint import pprint
 
 from dotenv import load_dotenv
 
@@ -38,22 +38,23 @@ def time_func(func):
     return timeit_wrapper
 
 
-dynamodb = boto3.resource(
-    "dynamodb",
-    endpoint_url="http://localhost:8100",
-    region_name=os.environ.get("REGION_NAME"),
-    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-)
+def list_tables(dynamodb_resource: boto3.resource):
+    tables = dynamodb_resource.tables.all()
+    for table in tables:
+        print(table)
 
 
-with open("env.yaml", "r", encoding="utf-8") as fp:
-    params = yaml.safe_load(fp)["DynamoDB"]
-with open("item.yaml", "r", encoding="utf-8") as fp:
-    all_items = yaml.safe_load(fp)["TestItem"]
+def get_table_schema(dynamodb_resource: boto3.resource, table_name: str):
+    try:
+        dynamodb_table = dynamodb_resource.Table(table_name)
+    except Exception as e:
+        raise e
+    attrs = dynamodb_table.attribute_definitions
+    pprint(attrs)
+    schema = dynamodb_table.key_schema
+    pprint(schema)
 
 
-@log_func
 def create_table(dynamodb_resource: boto3.resource, params: dict):
     try:
         table = dynamodb_resource.create_table(**params)
@@ -63,7 +64,6 @@ def create_table(dynamodb_resource: boto3.resource, params: dict):
         raise e
 
 
-@log_func
 def deleteTable(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
@@ -75,7 +75,6 @@ def deleteTable(dynamodb_resource: boto3.resource, table_name: str):
         raise e
 
 
-@log_func
 def put_item(dynamodb_resource: boto3.resource, table_name: str, items: dict):
     try:
         dynamodb_table = dynamodb_resource.Table(table_name)
@@ -87,7 +86,6 @@ def put_item(dynamodb_resource: boto3.resource, table_name: str, items: dict):
     print(f"Items put: {counter+1}")
 
 
-@log_func
 def truncate_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
@@ -120,21 +118,24 @@ def truncate_table(dynamodb_resource: boto3.resource, table_name: str):
     print(f"Items deleted: {counter}")
 
 
-# @time_func
-@log_func
 def scan_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
-        table = dynamodb_resource.Table(table_name).scan()
+        table = dynamodb_resource.Table(table_name)
     except Exception as e:
         raise e
 
-    res_df = pd.DataFrame(table["Items"])
-    print(f"Scanned table size: {res_df.shape}")
+    response = table.scan()
 
-    return res_df
+    data = response["Items"]
+    while "LastEvaluatedKey" in response:
+        response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+        data.extend(response["Items"])
+
+    print(data)
+
+    return data
 
 
-@log_func
 def query_table(
     dynamodb_resource: boto3.resource,
     table_name: str,
@@ -143,25 +144,80 @@ def query_table(
     table = dynamodb_resource.Table(table_name)
     query_res = table.query(**options)
 
-    # query_res = query_res["Items"]
+    data = query_res["Items"]
 
-    print(query_res)
-
-
-deleteTable(dynamodb, params["TableName"])
-create_table(dynamodb, params)
-put_item(dynamodb, params["TableName"], all_items)
-scan_table(dynamodb, params["TableName"])
-truncate_table(dynamodb, params["TableName"])
-scan_table(dynamodb, params["TableName"])
-
-options = {
-    # "Select": "COUNT",
-    "KeyConditionExpression": Key("user_id").eq("test_user_3") & Key("count").eq(40),
-    # "FilterExpression": Attr("status").eq(1),
-}
+    print(data)
 
 
-query_table(dynamodb_resource=dynamodb, table_name=params["TableName"], options=options)
+def copy_table(
+    src_dynamodb: boto3.client,
+    src_table_name: str,
+    dst_dynamodb: boto3.client,
+    dst_table_name: str,
+):
+    dynamo_paginator = src_dynamodb.get_paginator("scan")
 
-# %%
+    dynamodb_response = dynamo_paginator.paginate(
+        TableName=src_table_name,
+        Select="ALL_ATTRIBUTES",
+        ReturnConsumedCapacity="NONE",
+        ConsistentRead=True,
+    )
+
+    for page in dynamodb_response:
+        for count, item in enumerate(page["Items"]):
+            dst_dynamodb.put_item(TableName=dst_table_name, Item=item)
+        print(f"Items transfered: {count+1}")
+
+
+dynamodb = boto3.resource(
+    "dynamodb",
+    endpoint_url="http://localhost:8100",
+    region_name=os.environ.get("REGION_NAME"),
+    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+)
+
+
+with open("env.yaml", "r", encoding="utf-8") as f:
+    params = yaml.safe_load(f)["DynamoDB"]
+with open("item.yaml", "r", encoding="utf-8") as f:
+    items = yaml.safe_load(f)["TestItem"]
+
+
+get_table_schema(dynamodb, "TestTable")
+
+# list_tables(dynamodb)
+# deleteTable(dynamodb, params["TableName"])
+# create_table(dynamodb, params)
+# put_item(dynamodb, params["TableName"], items)
+# scan_table(dynamodb, params["TableName"])
+# truncate_table(dynamodb, params["TableName"])
+# scan_table(dynamodb, params["TableName"])
+
+# options = {
+#     # "Select": "COUNT",
+#     "KeyConditionExpression": Key("user_id").eq("test_user_3") & Key("count").eq(40),
+#     # "FilterExpression": Attr("status").eq(1),
+# }
+
+# query_table(dynamodb_resource=dynamodb, table_name=params["TableName"], options=options)
+
+
+src_dynamodb_client = boto3.client(
+    "dynamodb",
+    endpoint_url="http://localhost:8100",
+    region_name=os.environ.get("REGION_NAME"),
+    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+)
+# dst_dynamodb_client = boto3.client(
+#     "dynamodb",
+#     endpoint_url="http://localhost:8100",
+#     region_name=os.environ.get("REGION_NAME"),
+#     aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+#     aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+# )
+
+
+# copy_table(src_dynamodb_client, "TestTable", dst_dynamodb_client, "TestTable2")
