@@ -92,6 +92,15 @@ def put_item(dynamodb_resource: boto3.resource, table_name: str, items: dict):
 
 
 @log_func
+def update_item(dynamodb_resource: boto3.resource, table_name: str, option: dict):
+    try:
+        dynamodb_table = dynamodb_resource.Table(table_name)
+    except Exception as e:
+        raise e
+    dynamodb_table.update_item(**option)
+
+
+@log_func
 def truncate_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
@@ -182,54 +191,66 @@ def copy_table(
             print("Original Table is empty.")
 
 
-dynamodb = boto3.resource(
-    "dynamodb",
-    endpoint_url="http://localhost:8100",
-    region_name=os.environ.get("REGION_NAME"),
-    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-)
+if __name__ == "__main__":
 
+    dynamodb = boto3.resource(
+        "dynamodb",
+        endpoint_url="http://localhost:8100",
+        region_name=os.environ.get("REGION_NAME"),
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+    )
 
-with open("env.yaml", "r", encoding="utf-8") as f:
-    params = yaml.safe_load(f)["DynamoDB"]
-with open("item.yaml", "r", encoding="utf-8") as f:
-    items = yaml.safe_load(f)["TestItem"]
+    with open("env.yaml", "r", encoding="utf-8") as f:
+        params = yaml.safe_load(f)["DynamoDB"]
+    with open("item.yaml", "r", encoding="utf-8") as f:
+        items = yaml.safe_load(f)["TestItem"]
 
+    get_table_schema(dynamodb, "TestTable")
+    list_tables(dynamodb)
+    delete_table(dynamodb, "TestTable")
+    create_table(dynamodb, params)
+    put_item(dynamodb, "TestTable", items)
+    scan_table(dynamodb, "TestTable")
+    truncate_table(dynamodb, "TestTable")
+    scan_table(dynamodb, "TestTable")
 
-get_table_schema(dynamodb, "TestTable")
+    update_option = {
+        "Key": {"user_id": "test_user_2", "count": 100},
+        "UpdateExpression": "set #attr1 = :_status",
+        "ExpressionAttributeNames": {"#attr1": "status"},
+        "ExpressionAttributeValues": {":_status": 404},
+        "ReturnValues": "UPDATED_NEW",
+    }
 
-list_tables(dynamodb)
-delete_table(dynamodb, "TestTable")
-create_table(dynamodb, params)
-put_item(dynamodb, "TestTable", items)
-scan_table(dynamodb, "TestTable")
-# truncate_table(dynamodb, "TestTable")
-# scan_table(dynamodb, "TestTable")
+    update_item(
+        dynamodb_resource=dynamodb, table_name="TestTable", option=update_option
+    )
 
-options = {
-    # "Select": "COUNT",
-    "KeyConditionExpression": Key("user_id").eq("test_user_3") & Key("count").eq(40),
-    # "FilterExpression": Attr("status").eq(1),
-}
+    query_options = {
+        # "Select": "COUNT",
+        "KeyConditionExpression": Key("user_id").eq("test_user_3")
+        & Key("count").eq(40),
+        # "FilterExpression": Attr("status").eq(1),
+    }
 
-query_table(dynamodb_resource=dynamodb, table_name="TestTable", options=options)
+    query_table(
+        dynamodb_resource=dynamodb, table_name="TestTable", options=query_options
+    )
 
+    src_dynamodb_client = boto3.client(
+        "dynamodb",
+        endpoint_url="http://localhost:8100",
+        region_name=os.environ.get("REGION_NAME"),
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+    )
+    dst_dynamodb_client = boto3.client(
+        "dynamodb",
+        endpoint_url="http://localhost:8100",
+        region_name=os.environ.get("REGION_NAME"),
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+    )
 
-src_dynamodb_client = boto3.client(
-    "dynamodb",
-    endpoint_url="http://localhost:8100",
-    region_name=os.environ.get("REGION_NAME"),
-    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-)
-dst_dynamodb_client = boto3.client(
-    "dynamodb",
-    endpoint_url="http://localhost:8100",
-    region_name=os.environ.get("REGION_NAME"),
-    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-)
-
-
-copy_table(src_dynamodb_client, "TestTable", dst_dynamodb_client, "TestTable2")
+    copy_table(src_dynamodb_client, "TestTable", dst_dynamodb_client, "TestTable2")
