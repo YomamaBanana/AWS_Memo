@@ -1,0 +1,16 @@
+TestItem:
+  - user_id: test_user_1
+    count: 100
+    status: 1
+
+  - user_id: test_user_2
+    count: 80
+    status: 0
+
+  - user_id: test_user_3
+    count: 90
+    status: 1
+
+  - user_id: test_user_3
+    count: 40
+    status: 0
