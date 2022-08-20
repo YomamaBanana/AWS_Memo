@@ -38,12 +38,14 @@ def time_func(func):
     return timeit_wrapper
 
 
+@log_func
 def list_tables(dynamodb_resource: boto3.resource):
     tables = dynamodb_resource.tables.all()
     for table in tables:
         print(table)
 
 
+@log_func
 def get_table_schema(dynamodb_resource: boto3.resource, table_name: str):
     try:
         dynamodb_table = dynamodb_resource.Table(table_name)
@@ -55,6 +57,7 @@ def get_table_schema(dynamodb_resource: boto3.resource, table_name: str):
     pprint(schema)
 
 
+@log_func
 def create_table(dynamodb_resource: boto3.resource, params: dict):
     try:
         table = dynamodb_resource.create_table(**params)
@@ -64,7 +67,8 @@ def create_table(dynamodb_resource: boto3.resource, params: dict):
         raise e
 
 
-def deleteTable(dynamodb_resource: boto3.resource, table_name: str):
+@log_func
+def delete_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
         table.delete()
@@ -75,6 +79,7 @@ def deleteTable(dynamodb_resource: boto3.resource, table_name: str):
         raise e
 
 
+@log_func
 def put_item(dynamodb_resource: boto3.resource, table_name: str, items: dict):
     try:
         dynamodb_table = dynamodb_resource.Table(table_name)
@@ -86,6 +91,7 @@ def put_item(dynamodb_resource: boto3.resource, table_name: str, items: dict):
     print(f"Items put: {counter+1}")
 
 
+@log_func
 def truncate_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
@@ -118,6 +124,7 @@ def truncate_table(dynamodb_resource: boto3.resource, table_name: str):
     print(f"Items deleted: {counter}")
 
 
+@log_func
 def scan_table(dynamodb_resource: boto3.resource, table_name: str):
     try:
         table = dynamodb_resource.Table(table_name)
@@ -136,6 +143,7 @@ def scan_table(dynamodb_resource: boto3.resource, table_name: str):
     return data
 
 
+@log_func
 def query_table(
     dynamodb_resource: boto3.resource,
     table_name: str,
@@ -149,6 +157,7 @@ def query_table(
     print(data)
 
 
+@log_func
 def copy_table(
     src_dynamodb: boto3.client,
     src_table_name: str,
@@ -165,9 +174,12 @@ def copy_table(
     )
 
     for page in dynamodb_response:
-        for count, item in enumerate(page["Items"]):
-            dst_dynamodb.put_item(TableName=dst_table_name, Item=item)
-        print(f"Items transfered: {count+1}")
+        if page["Items"]:
+            for count, item in enumerate(page["Items"]):
+                dst_dynamodb.put_item(TableName=dst_table_name, Item=item)
+            print(f"Items transfered: {count+1}")
+        else:
+            print("Original Table is empty.")
 
 
 dynamodb = boto3.resource(
@@ -187,21 +199,21 @@ with open("item.yaml", "r", encoding="utf-8") as f:
 
 get_table_schema(dynamodb, "TestTable")
 
-# list_tables(dynamodb)
-# deleteTable(dynamodb, params["TableName"])
-# create_table(dynamodb, params)
-# put_item(dynamodb, params["TableName"], items)
-# scan_table(dynamodb, params["TableName"])
-# truncate_table(dynamodb, params["TableName"])
-# scan_table(dynamodb, params["TableName"])
+list_tables(dynamodb)
+delete_table(dynamodb, "TestTable")
+create_table(dynamodb, params)
+put_item(dynamodb, "TestTable", items)
+scan_table(dynamodb, "TestTable")
+# truncate_table(dynamodb, "TestTable")
+# scan_table(dynamodb, "TestTable")
 
-# options = {
-#     # "Select": "COUNT",
-#     "KeyConditionExpression": Key("user_id").eq("test_user_3") & Key("count").eq(40),
-#     # "FilterExpression": Attr("status").eq(1),
-# }
+options = {
+    # "Select": "COUNT",
+    "KeyConditionExpression": Key("user_id").eq("test_user_3") & Key("count").eq(40),
+    # "FilterExpression": Attr("status").eq(1),
+}
 
-# query_table(dynamodb_resource=dynamodb, table_name=params["TableName"], options=options)
+query_table(dynamodb_resource=dynamodb, table_name="TestTable", options=options)
 
 
 src_dynamodb_client = boto3.client(
@@ -211,13 +223,13 @@ src_dynamodb_client = boto3.client(
     aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
     aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
 )
-# dst_dynamodb_client = boto3.client(
-#     "dynamodb",
-#     endpoint_url="http://localhost:8100",
-#     region_name=os.environ.get("REGION_NAME"),
-#     aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
-#     aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-# )
+dst_dynamodb_client = boto3.client(
+    "dynamodb",
+    endpoint_url="http://localhost:8100",
+    region_name=os.environ.get("REGION_NAME"),
+    aws_access_key_id=os.environ.get("AWS_ACCESS_KEY"),
+    aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+)
 
 
-# copy_table(src_dynamodb_client, "TestTable", dst_dynamodb_client, "TestTable2")
+copy_table(src_dynamodb_client, "TestTable", dst_dynamodb_client, "TestTable2")
